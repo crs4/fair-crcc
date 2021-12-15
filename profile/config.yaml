@@ -1,0 +1,5 @@
+
+max-threads: 7
+# delete-temp-output: true This causes snakemake to break
+keep-going: true
+printshellcmds: true
