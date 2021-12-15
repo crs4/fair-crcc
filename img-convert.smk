@@ -11,26 +11,6 @@ configfile: "config.yml"
 from os.path import join
 from pathlib import Path
 
-shell.prefix("set -o pipefail; ")
-
-# source_slides = []
-# for base in config['img_directories']:
-#   # Tuples with the base directory and the full Path object to a slide
-#   source_slides.extend(
-#       (base, p.resolve()) for p in Path(base).glob("**/*") if p.suffix in {".mrxs", ".svs"})
-# output_slides =
-#    expand("tiff_slides/{slide}.tiff",
-#        zip,
-#        slide=(v[1].relative_to(v[0]).with_suffix('') for v in source_slides))
-
-# All input files:
-#    expand("{root}/{slide}.{type}",
-#        zip,
-#        root=(v[0] for v in source_slides),
-#        slide=(v[1].relative_to(v[0]).with_suffix('') for v in source_slides),
-#        type=(v[1].suffix for v in source_slides))
-
-
 
 ## Utility functions
 def merge_globs(*globs):
@@ -47,7 +27,12 @@ def merge_globs(*globs):
     new_wildcard = globs[0].__class__(**merged)
     return new_wildcard
 
-#source_slides = glob_wildcards(config['img_directory'] + "/{relpath}/{slide}.{suffix,mrxs|svs}")
+
+
+### Workflow start ###
+
+shell.prefix("set -o pipefail; ")
+
 source_slides = merge_globs(
     glob_wildcards(config['img_directory'] + "/{relpath}/{slide}.mrxs"),
     glob_wildcards(config['img_directory'] + "/{relpath}/{slide}.svs"))
@@ -62,22 +47,8 @@ def gen_input_path(suffix, wildcard):
     return str(path) if path.exists() else ""
 
 
-def gen_input_path_mirax(wildcard):
-    print("mirax called")
-    path = Path(config['img_directory']) / "{relpath}/{slide}.mrxs".format(relpath=wildcard.relpath, slide=wildcard.slide)
-    return str(path) if path.exists() else ""
-
-
-def gen_input_path_svs(wildcard):
-    print("svs called")
-    path = Path(config['img_directory']) / "{relpath}/{slide}.svs".format(relpath=wildcard.relpath, slide=wildcard.slide)
-    return str(path) if path.exists() else ""
-
-
 rule all_tiffs:
     input:
-        # `slide` here includes the part of the directory tree relative to the
-        # base image directory provided in the configuration.
         expand("tiff_slides/{relpath}/{slide}.tiff", zip, relpath=source_slides.relpath, slide=source_slides.slide)
 
 
@@ -96,7 +67,6 @@ rule mirax_to_raw:
 
 use rule mirax_to_raw as svs_to_raw with:
     input:
-        #gen_input_path_svs
         svs=lambda wildcard: gen_input_path("svs", wildcard)
 
 
