@@ -11,6 +11,17 @@ configfile: "config.yml"
 from os.path import join
 from pathlib import Path
 
+ContainerMounts = {
+    "input": "/input-storage/",
+    "output": "/output-storage/",
+}
+
+# Set container mounts points based on the configuration provided
+if workflow.use_singularity:
+    workflow.singularity_args += f" --bind {config['img_directory']}:{ContainerMounts['input']}:ro"
+    workflow.singularity_args += f" --bind {config['output_storage']}:{ContainerMounts['output']}:rw"
+    workflow.singularity_args += f" --pwd {ContainerMounts['output']}"
+
 
 ## Utility functions
 def merge_globs(*globs):
@@ -40,12 +51,28 @@ source_slides = merge_globs(
 print("Source slides are: ", [ join(head, tail) for head, tail in zip(source_slides.relpath, source_slides.slide) ])
 
 ## Input functions
-def gen_input_path(suffix, wildcard):
+def gen_rule_input_path(suffix, wildcard):
     if not suffix:
         raise ValueError("suffix is not defined")
     path = Path(config['img_directory']) / f"{wildcard.relpath}/{wildcard.slide}.{suffix}"
     return str(path) if path.exists() else ""
 
+
+def convert_input_path_for_job(input_obj):
+    """
+    Converts an input path (formed by gen_rule_input_path) to a path
+    suitable for the execution of the *_to_raw rules.  In particular,
+    if we're using containers, we need to modify the path so that it's
+    relative to the mount-point inside the container.
+    """
+    fs_path = input_obj[0]
+    if workflow.use_singularity:
+        job_input = Path(ContainerMounts['input']) / Path(fs_path).relative_to(config['img_directory'])
+    else:
+        job_input = fs_path
+    return str(job_input)
+
+## Rules
 
 rule all_tiffs:
     input:
@@ -54,20 +81,26 @@ rule all_tiffs:
 
 rule mirax_to_raw:
     input:
-        mrxs=lambda wildcard: gen_input_path("mrxs", wildcard)
+        mrxs=lambda wildcard: gen_rule_input_path("mrxs", wildcard)
     output:
         directory(temp("raw_slides/{relpath}/{slide}.raw"))
     log:
         "raw_slides/{relpath}/{slide}.log"
+    params:
+        job_in = lambda wildcard, input: convert_input_path_for_job(input)
     container:
         "docker://ilveroluca/bioformats2raw:0.3.1"
-    script:
-        "--max_workers={threads} {input} {output}"
+    threads:
+        7
+    shell:
+        """
+        mkdir -p $(dirname {output}) && bioformats2raw --max_workers={threads} {params.job_in} {output}
+        """
 
 
 use rule mirax_to_raw as svs_to_raw with:
     input:
-        svs=lambda wildcard: gen_input_path("svs", wildcard)
+        svs=lambda wildcard: gen_rule_input_path("svs", wildcard)
 
 
 rule raw_to_ometiff:
@@ -77,5 +110,9 @@ rule raw_to_ometiff:
         protected("tiff_slides/{relpath}/{slide}.tiff")
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
-    script:
-        " --max-workers={threads} {input} {output}"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p $(dirname {output}) && raw2ometiff --max-workers={threads} {input} {output}
+        """
