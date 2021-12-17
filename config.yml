@@ -1,2 +1,12 @@
 
-img_directory: "/mnt/rbd/data/sftp/BG/BG/0004/"
+# For Mirax files
+img_directory: "/mnt/rbd/data/sftp/BG/BG/0592/"
+# For some SVS files
+#img_directory: "/mnt/rbd/data/sftp/CCREB/regina1/standalone/"
+output_storage: "/mnt/rbd/data/sftp/fair-crcc/"
+
+log_level: WARN
+
+tiff:
+  compression: "JPEG" # (Uncompressed, LZW, JPEG-2000, JPEG-2000 Lossy, JPEG, zlib; default: LZW)
+  quality: 80 # apparently only has an effect for JPEG-2000 Lossy

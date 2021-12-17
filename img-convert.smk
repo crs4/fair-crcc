@@ -1,13 +1,8 @@
 
-# == Options that are probably useful ==
-#
-# keep-going: true
-# shadow-prefix: /mnt/rbd/data/sftp/fair-crcc/
-# delete-temp-output: true
-
 
 configfile: "config.yml"
 
+import multiprocessing as mp
 from os.path import join
 from pathlib import Path
 
@@ -87,14 +82,21 @@ rule mirax_to_raw:
     log:
         "raw_slides/{relpath}/{slide}.log"
     params:
-        job_in = lambda wildcard, input: convert_input_path_for_job(input)
+        job_in = lambda wildcard, input: convert_input_path_for_job(input),
+        log_level = config.get('log_level', 'WARN')
     container:
         "docker://ilveroluca/bioformats2raw:0.3.1"
     threads:
-        7
+        lambda cores: max(1, mp.cpu_count() - 1)
+    resources:
+        mem_mb = 4000
     shell:
         """
-        mkdir -p $(dirname {output}) && bioformats2raw --max_workers={threads} {params.job_in} {output}
+        mkdir -p $(dirname {output}) &&
+        bioformats2raw \
+            --log-level={params.log_level} \
+            --max_workers={threads} \
+            {params.job_in} {output} > {log} 2>&1
         """
 
 
@@ -109,12 +111,24 @@ rule raw_to_ometiff:
     output:
         protected("tiff_slides/{relpath}/{slide}.tiff")
     log:
-        "tiff/{relpath}/{slide}.log"
+        "tiff_slides/{relpath}/{slide}.log"
+    params:
+        compression = config.get('tiff', {}).get('compression', 'JPEG'),
+        quality = config.get('tiff', {}).get('quality', 80),
+        log_level = config.get('log_level', 'WARN')
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
+    resources:
+        mem_mb = 3000
     threads:
         4
     shell:
         """
-        mkdir -p $(dirname {output}) && raw2ometiff --max_workers={threads} {input} {output}
+        mkdir -p $(dirname {output}) &&
+        raw2ometiff \
+            --compression={params.compression} \
+            --quality={params.quality} \
+            --log-level={params.log_level} \
+            --max_workers={threads} \
+            {input} {output} > {log} 2>&1
         """
