@@ -1,25 +1,41 @@
 #!/usr/bin/env python3
 
 import argparse
+import fnmatch
 import sys
 
 import openslide
 
 
+def print_property(key: str, value: str) -> None:
+    print(key, "\t", value)
+
+
 def main(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("slide")
-    parser.add_argument("property", nargs='*', help="Properties to print.  If not specified, all are printed")
+    parser.add_argument("property", nargs='*',
+                        help="Properties to print.  If not specified, all are printed. "
+                        "May be a shell-style wildcard expression.")
 
     opts = parser.parse_args(args)
-
     slide = openslide.open_slide(opts.slide)
-    if opts.property:
-        for p in opts.property:
-            print(p, "\t", slide.properties.get(p))
-    else:
+
+    if not opts.property:
+        # simple case.  Print all the properties
         for k, v in slide.properties.items():
-            print(k, "\t", v)
+            print_property(k, v)
+    else:
+        selected_keys = set()
+        for prop in opts.property:
+            if any(c in prop for c in r'*?[]'):  # fnmatch expression
+                selected_keys = selected_keys.union(fnmatch.filter(slide.properties, prop))
+            else:
+                # a simple property name
+                selected_keys.add(prop)
+
+        for k in sorted(selected_keys):
+            print_property(k, slide.properties.get(k))
 
 
 if __name__ == '__main__':
