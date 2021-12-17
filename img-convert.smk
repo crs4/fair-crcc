@@ -108,11 +108,13 @@ rule raw_to_ometiff:
         "raw_slides/{relpath}/{slide}.raw"
     output:
         protected("tiff_slides/{relpath}/{slide}.tiff")
+    log:
+        "tiff/{relpath}/{slide}.log"
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
     threads:
         4
     shell:
         """
-        mkdir -p $(dirname {output}) && raw2ometiff --max-workers={threads} {input} {output}
+        mkdir -p $(dirname {output}) && raw2ometiff --max_workers={threads} {input} {output}
         """
