@@ -1,6 +1,7 @@
 
 keep-going: true
 printshellcmds: true
+wms-monitor: "http://localhost:5000"
 
 # == Other options that are probably useful ==
 #
