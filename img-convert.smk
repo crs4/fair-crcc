@@ -86,15 +86,16 @@ def setup_tmp_dir() -> None:
     atexit.register(delete_temp_directory, tmp_dir)
 
 
-def get_tmp_dir() -> str:
+def get_container_tmp_dir() -> str:
     mapped_path = map_path_to_container(os.environ['TMPDIR'])
     return str(mapped_path)
 
 
+def get_tmp_dir() -> str:
+    return os.environ['TMPDIR']
+
 
 ###### Workflow start ######
-
-
 
 os.makedirs(config['output_storage'], exist_ok=True)
 setup_tmp_dir()
@@ -103,9 +104,11 @@ workdir: config['output_storage']
 
 # Set container mounts points based on the configuration provided
 if workflow.use_singularity:
-    workflow.singularity_args += f" --bind {config['img_directory']}:{ContainerMounts['input']}:ro"
-    workflow.singularity_args += f" --bind {config['output_storage']}:{ContainerMounts['output']}:rw"
-    workflow.singularity_args += f" --pwd {ContainerMounts['output']}"
+    workflow.singularity_args += " ".join([
+        f" --bind {config['img_directory']}:{ContainerMounts['input']}:ro",
+        f" --bind {config['output_storage']}:{ContainerMounts['output']}:rw",
+        f" --pwd {ContainerMounts['output']}",
+        f" --env TMPDIR={get_container_tmp_dir()}"])
 
 
 
@@ -242,7 +245,7 @@ rule mirax_to_raw:
         log_level = config.get('log_level', 'WARN'),
         max_cached_tiles = config.get('tiff', {}).get('max_cached_tiles', 64),
         #memo_directory = lambda _, output: str(Path(output[0]).parent),
-        memo_directory = lambda _, get_tmp_dir(),
+        memo_directory = lambda _: get_container_tmp_dir(),
         tile_height = config.get('tiff', {}).get('tile_height', 1024),
         tile_width = config.get('tiff', {}).get('tile_width', 1024)
     container:
