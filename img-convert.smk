@@ -7,9 +7,12 @@
 
 configfile: "config.yml"
 
+import atexit
 import multiprocessing as mp
 import os
+import shutil
 import sys
+import tempfile
 from os.path import join
 from pathlib import Path
 from typing import Union
@@ -19,23 +22,12 @@ ContainerMounts = {
     "output": "/output-storage/",
 }
 
+## Utility functions
 
 def log(*args) -> None:
     print(*args, file=sys.stderr)
 
 
-os.makedirs(config['output_storage'], exist_ok=True)
-log("Switching working directory to output directory", config['output_storage'])
-workdir: config['output_storage']
-
-# Set container mounts points based on the configuration provided
-if workflow.use_singularity:
-    workflow.singularity_args += f" --bind {config['img_directory']}:{ContainerMounts['input']}:ro"
-    workflow.singularity_args += f" --bind {config['output_storage']}:{ContainerMounts['output']}:rw"
-    workflow.singularity_args += f" --pwd {ContainerMounts['output']}"
-
-
-## Utility functions
 def merge_globs(*globs):
     """Concatenates compatible wildcards into a new object"""
     if len(globs) <= 0:
@@ -51,7 +43,7 @@ def merge_globs(*globs):
     return new_wildcard
 
 
-def map_key_location(path: Union[str, Path]) -> str:
+def map_path_to_container(path: Union[str, Path]) -> str:
     if not path:
         raise ValueError("key path is not specified")
     if not workflow.use_singularity:
@@ -60,17 +52,62 @@ def map_key_location(path: Union[str, Path]) -> str:
     # else, we're using singularity
     if not isinstance(path, Path):
         path = Path(path)
-    if path.is_relative_to(os.environ['HOME']):
-        return str(path)
     if path.is_relative_to(config['img_directory']):
         return str(Path(ContainerMounts['input']) / path.relative_to(config['img_directory']))
     if path.is_relative_to(config['output_storage']):
         return str(Path(ContainerMounts['output']) / path.relative_to(config['output_storage']))
-    raise ValueError(f"Key location {path.parent} is not supported.  "
-                     "Place keys in one of the directories mounted by singularity")
+    raise ValueError(f"Location {path} is not supported. Place things "
+                     "in one of the directories mounted by singularity")
+
+def delete_temp_directory(tmp_dir: Union[str, Path]) -> None:
+    log("Deleting temporary directory", tmp_dir)
+    shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-### Workflow start ###
+def setup_tmp_dir() -> None:
+    """
+    Creates a temporary directory for the workflow run.
+    If `tmp_dir` is specified in the configuration, it will be used as
+    the base path.  The temporary directory will be at a location mounted
+    in any containers instantiated by the workflow.
+    """
+    base_path = config.get('tmp_dir', config['output_storage'])
+
+    # Call map_path_to_container to check base_path.  It will raise
+    # an error if path is outside container mounts
+    map_path_to_container(base_path)
+
+    os.makedirs(base_path, exist_ok=True)
+    # with the specified directory, create a random subdirectory to avoid
+    # conflicts with other runs that use the same configuration value.
+    tmp_dir = tempfile.mkdtemp(prefix="img-convert-wf", dir=base_path)
+    log("Created temporary directory", tmp_dir)
+    os.environ['TMPDIR'] = tmp_dir
+    atexit.register(delete_temp_directory, tmp_dir)
+
+
+def get_tmp_dir() -> str:
+    mapped_path = map_path_to_container(os.environ['TMPDIR'])
+    return str(mapped_path)
+
+
+
+###### Workflow start ######
+
+
+
+os.makedirs(config['output_storage'], exist_ok=True)
+setup_tmp_dir()
+log("Switching working directory to output directory", config['output_storage'])
+workdir: config['output_storage']
+
+# Set container mounts points based on the configuration provided
+if workflow.use_singularity:
+    workflow.singularity_args += f" --bind {config['img_directory']}:{ContainerMounts['input']}:ro"
+    workflow.singularity_args += f" --bind {config['output_storage']}:{ContainerMounts['output']}:rw"
+    workflow.singularity_args += f" --pwd {ContainerMounts['output']}"
+
+
 
 shell.prefix("set -o pipefail; ")
 
@@ -85,7 +122,7 @@ log("singularity_args:", workflow.singularity_args)
 log("Source slides are: ", [ join(head, tail) for head, tail in zip(source_slides.relpath, source_slides.slide) ])
 
 
-## Input functions
+###### Input functions ######
 def gen_rule_input_path(suffix, wildcard):
     if not suffix:
         raise ValueError("suffix is not defined")
@@ -107,7 +144,7 @@ def convert_input_path_for_job(input_obj):
         job_input = fs_path
     return str(job_input)
 
-## Rules
+##### Rules #####
 
 rule all_tiffs:
     input:
@@ -155,7 +192,7 @@ rule compute_tiff_checksum:
     params:
         checksum_alg = 256
     resources:
-        mem_mb = 512
+        mem_mb = 64
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
     shell:
@@ -163,14 +200,6 @@ rule compute_tiff_checksum:
         sha{params.checksum_alg}sum {input:q} > {output:q} 2> {log:q}
         """
 
-# FIXME:  move crypt part to another workflow where we can
-# require the definition of these env vars.  If I understand correctly,
-# without the envvars directive snakemake won't forward these env vars
-# to cluster jobs
-#
-#envvars:
-#    "C4GH_SECRET_KEY",
-#    "C4GH_PUBLIC_KEY"
 
 rule crypt_tiff:
     input:
@@ -184,8 +213,8 @@ rule crypt_tiff:
         "c4gh/{relpath}/{slide}.bench"
     params:
         checksum_alg = 256,
-        private_key = lambda _: map_key_location(os.environ['C4GH_SECRET_KEY']),
-        public_key = lambda _: map_key_location(os.environ['C4GH_PUBLIC_KEY'])
+        private_key = lambda _: map_path_to_container(config['keypair']['private']),
+        public_key = lambda _: map_path_to_container(config['keypair']['public'])
     resources:
         mem_mb = 1024, # guessed and probably overestimated
         disk_mb = lambda _, input: input.size
@@ -210,12 +239,18 @@ rule mirax_to_raw:
         "raw_slides/{relpath}/{slide}.bench"
     params:
         job_in = lambda _, input: convert_input_path_for_job(input),
-        log_level = config.get('log_level', 'WARN')
+        log_level = config.get('log_level', 'WARN'),
+        max_cached_tiles = config.get('tiff', {}).get('max_cached_tiles', 64),
+        #memo_directory = lambda _, output: str(Path(output[0]).parent),
+        memo_directory = lambda _, get_tmp_dir(),
+        tile_height = config.get('tiff', {}).get('tile_height', 1024),
+        tile_width = config.get('tiff', {}).get('tile_width', 1024)
     container:
         "docker://ilveroluca/bioformats2raw:0.3.1"
     resources:
         mem_mb = 5000,
-        disk_mb = lambda _, input: input.size * 15
+        disk_mb = lambda _, input: input.size * 15,
+        tmpdir = lambda _: get_tmp_dir()
     threads:
         #lambda cores: max(1, mp.cpu_count() - 1)
         3
@@ -225,6 +260,10 @@ rule mirax_to_raw:
         bioformats2raw \
             --log-level={params.log_level} \
             --max_workers=$((2 * {threads})) \
+            --tile_height={params.tile_height} \
+            --tile_width={params.tile_width} \
+            --memo-directory={params.memo_directory} \
+            --max_cached_tiles={params.max_cached_tiles} \
             {params.job_in:q} {output:q} &> {log}
         """
 
@@ -235,6 +274,7 @@ use rule mirax_to_raw as svs_to_raw with:
 
 
 rule raw_to_ometiff:
+    priority: 10  # higher than other rules
     input:
         "raw_slides/{relpath}/{slide}.raw"
     output:
@@ -251,7 +291,8 @@ rule raw_to_ometiff:
         "docker://ilveroluca/raw2ometiff:0.3.0"
     resources:
         mem_mb = 3000,
-        disk_mb = lambda _, input: input.size / 10
+        disk_mb = lambda _, input: input.size / 10,
+        tmpdir = lambda _: get_tmp_dir()
     threads:
         5
     shell:
