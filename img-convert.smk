@@ -247,7 +247,8 @@ rule mirax_to_raw:
         #memo_directory = lambda _, output: str(Path(output[0]).parent),
         memo_directory = lambda _: get_container_tmp_dir(),
         tile_height = config.get('tiff', {}).get('tile_height', 1024),
-        tile_width = config.get('tiff', {}).get('tile_width', 1024)
+        tile_width = config.get('tiff', {}).get('tile_width', 1024),
+        workers = lambda _, threads: round(1.5 * threads),
     container:
         "docker://ilveroluca/bioformats2raw:0.3.1"
     resources:
@@ -262,7 +263,7 @@ rule mirax_to_raw:
         mkdir -p $(dirname {output}) &&
         bioformats2raw \
             --log-level={params.log_level} \
-            --max_workers=$((2 * {threads})) \
+            --max_workers={params.workers} \
             --tile_height={params.tile_height} \
             --tile_width={params.tile_width} \
             --memo-directory={params.memo_directory} \
@@ -289,6 +290,7 @@ rule raw_to_ometiff:
     params:
         compression = config.get('tiff', {}).get('compression', 'JPEG'),
         quality = config.get('tiff', {}).get('quality', 80),
+        workers = lambda _, threads: threads,
         log_level = config.get('log_level', 'WARN')
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
@@ -305,6 +307,6 @@ rule raw_to_ometiff:
             --compression={params.compression:q} \
             --quality={params.quality} \
             --log-level={params.log_level} \
-            --max_workers={threads} \
+            --max_workers={params.workers} \
             {input:q} {output:q} &> {log}
         """
