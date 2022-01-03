@@ -51,7 +51,7 @@ def map_path_to_container(path: Union[str, Path]) -> str:
         return str(path)
     # else, we're using singularity
     if not isinstance(path, Path):
-        path = Path(path)
+        path = Path(path).resolve()
     if path.is_relative_to(config['img_directory']):
         return str(Path(ContainerMounts['input']) / path.relative_to(config['img_directory']))
     if path.is_relative_to(config['output_storage']):
