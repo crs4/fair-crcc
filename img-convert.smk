@@ -256,8 +256,7 @@ rule mirax_to_raw:
         disk_mb = lambda _, input: input.size * 15,
         tmpdir = lambda _: get_tmp_dir()
     threads:
-        #lambda cores: max(1, mp.cpu_count() - 1)
-        3
+        4
     shell:
         """
         mkdir -p $(dirname {output}) &&
@@ -292,6 +291,7 @@ rule raw_to_ometiff:
         quality = config.get('tiff', {}).get('quality', 80),
         workers = lambda _, threads: threads,
         log_level = config.get('log_level', 'WARN')
+    priority: 10
     container:
         "docker://ilveroluca/raw2ometiff:0.3.0"
     resources:
@@ -299,7 +299,7 @@ rule raw_to_ometiff:
         disk_mb = lambda _, input: input.size / 10,
         tmpdir = lambda _: get_tmp_dir()
     threads:
-        5
+        4
     shell:
         """
         mkdir -p $(dirname {output}) &&
