@@ -163,7 +163,8 @@ rule all_encrypted_tiffs:
             lambda _: [ str(Path("c4gh") / p.relative_to("tiff_slides").with_suffix(p.suffix + new_suffix))
                           for p in map(Path, rules.all_tiffs.input.tiffs)
                           for new_suffix in ('.c4gh', '.c4gh.sha')
-                        ]
+                        ],
+        checksums = "tiff_slides/tiff_checksums"
 
 
 rule merge_tiff_checksums:
