@@ -220,8 +220,7 @@ rule crypt_tiff:
         private_key = lambda _: map_path_to_container(config['keypair']['private']),
         public_key = lambda _: map_path_to_container(config['keypair']['public'])
     resources:
-        mem_mb = 1024, # guessed and probably overestimated
-        disk_mb = lambda _, input: input.size
+        mem_mb = 1024 # guessed and probably overestimated
     container:
         "docker://ilveroluca/crypt4gh:1.5"
     shell:
@@ -254,7 +253,6 @@ rule mirax_to_raw:
         "docker://ilveroluca/bioformats2raw:0.3.1"
     resources:
         mem_mb = 5000,
-        disk_mb = lambda _, input: input.size * 15,
         tmpdir = lambda _: get_tmp_dir()
     threads:
         4
@@ -297,7 +295,6 @@ rule raw_to_ometiff:
         "docker://ilveroluca/raw2ometiff:0.3.0"
     resources:
         mem_mb = 3000,
-        disk_mb = lambda _, input: input.size / 10,
         tmpdir = lambda _: get_tmp_dir()
     threads:
         4
