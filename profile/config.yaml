@@ -1,8 +1,0 @@
-
-keep-going: true
-printshellcmds: true
-wms-monitor: "http://localhost:5000"
-
-# == Other options that are probably useful ==
-#
-# shadow-prefix: /mnt/rbd/data/sftp/fair-crcc/
