@@ -27,15 +27,10 @@ def time_block():
         print("Running time: {:02f}".format(end_time - start_time), file=sys.stderr)
 
 
-def print_progress(progress):
-    print(f"run = {progress.run}, eta = {progress.eta}, "
-          f"percent = {progress.percent} tpels = {progress.tpels}, "
-          f"npels = {progress.npels}", file=sys.stderr)
-
-
-def eval_cb(image, progress):
-    print("eval:", file=sys.stderr)
-    print_progress(progress)
+def print_progress(progress) -> None:
+    print(f"percent = {progress.percent}%; run time = {progress.run}s; ETA = {progress.eta}s", file=sys.stderr)
+    if progress.percent == 100:
+        print("Progress is 100%, but it'll take a bit longer it finish up.", file=sys.stderr)
 
 
 def parse_args(args=None):
@@ -160,14 +155,23 @@ def main(args=None):
     if opts.quality:
         output_args['Q'] = opts.quality
 
-    image.set_progress(True)
-    image.signal_connect('eval', eval_cb)
+    if opts.verbose:
+        os.environ['VIPS_PROGRESS'] = "1"
+        image.set_progress(True)
+
+        last_progress_update = None
+
+        def eval_callback(_, progress):
+            nonlocal last_progress_update
+            if last_progress_update != progress.percent:
+                last_progress_update = progress.percent
+                print_progress(progress)
+        image.signal_connect('eval', eval_callback)
 
     print("Writing the tiff.  Arguments:", output_args, file=sys.stderr)
     image.tiffsave(str(opts.output), **output_args)
 
 
 if __name__ == "__main__":
-    os.environ['VIPS_PROGRESS'] = "1"
     with time_block():
         main(sys.argv[1:])
