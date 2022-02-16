@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 
+
+# Authors: Luca Pireddu and Martin Kačenga
+
 import argparse
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Mapping
 
 import pyvips
 from pyvips import Image
@@ -53,45 +58,78 @@ def parse_args(args=None):
     parser.add_argument('--no-pyramid', action='store_true',
                         help="Don't generate pyramid")
     parser.add_argument('-t', '--tile-size', type=int, default=512)
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="Be more verbose. Prints progress information from libvips")
 
     opts = parser.parse_args(args)
 
     return opts
 
 
-def create_image_description(image: pyvips.Image) -> str:
-    template = """<?xml version="1.0" encoding="UTF-8"?>
-        <OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"
-            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-            xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06 http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">
-            <Image ID="Image:0">
-                <!-- Minimum required fields about image dimensions -->
-                <Pixels DimensionOrder="XYCZT"
-                        ID="Pixels:0"
-                        SizeX="{image_width}"
-                        SizeY="{image_height}"
-                        SizeC="{image_bands}"
-                        SizeZ="1"
-                        SizeT="1"
-                        Type="uint8">
-                </Pixels>
-            </Image>
-        </OME>"""
+ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
+<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06 http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">
+    <Image ID="Image:0">
+        <!-- Minimum required fields about image dimensions -->
+        <Pixels DimensionOrder="CXYZT"
+                ID="Pixels:0"
+                SizeC="{image_bands}"
+                SizeX="{image_width}"
+                SizeY="{image_height}"
+                SizeZ="1"
+                SizeT="1"
+                Type="uint8">
+            <MetadataOnly/>
+        </Pixels>
+    </Image>
+</OME>"""
 
-    fields = dict(
+
+def create_ome_xml(image: pyvips.Image) -> str:
+    xml_fields = dict(
         image_width=image.width,
         image_height=image.height,
         image_bands=image.bands)
+    initial_xml = ome_xml_template.format(**xml_fields)
 
-    return template.format(**fields)
+    metadata = extract_metadata(image)
+
+    ET.register_namespace("OME", "http://www.openmicroscopy.org/Schemas/OME/2016-06")
+    root = ET.fromstring(initial_xml)
+    structured_annotations = ET.SubElement(root, "OME:StructuredAnnotations")
+    counter = 0
+    for key, value in metadata.items():
+        xml_annotation = ET.SubElement(structured_annotations, "OME:XMLAnnotation")
+        xml_annotation.set("ID", "Annotation:" + str(counter))
+        counter += 1
+        val = ET.SubElement(xml_annotation, "OME:Value")
+        original_metadata = ET.SubElement(val, "OriginalMetadata")
+        k = ET.SubElement(original_metadata, "Key")
+        k.text = key
+        v = ET.SubElement(original_metadata, "Value")
+        v.text = value
+    return ET.tostring(root, encoding='utf-8')
+
+
+def extract_metadata(image: pyvips.Image) -> Mapping[str, Any]:
+    image_format = image.get('openslide.vendor')
+    if image_format == "mirax":
+        metadata = {f.rsplit('.', 1)[1]: image.get(f)
+                    for f in image.get_fields() if f.startswith('mirax.GENERAL')}
+    elif image_format == "aperio":
+        metadata = {f.rsplit('.', 1)[1]: image.get(f)
+                    for f in image.get_fields() if f.startswith('aperio')}
+    elif image_format == "hamamatsu":
+        metadata = {f.split('.', 1)[1]: image.get(f)
+                    for f in image.get_fields() if f.startswith('hamamatsu')}
+
+    return metadata
 
 
 def main(args=None):
     """
-    openslide to OME-TIFF conversion using pyvips.
-
-    Based on example by John Cupitt
-    (https://forum.image.sc/t/writing-qupath-bio-formats-compatible-pyramidal-image-with-libvips/51223/6)
+    openslide to OME(?)-TIFF conversion using pyvips.
     """
     opts = parse_args(args)
 
@@ -101,15 +139,8 @@ def main(args=None):
     if image.hasalpha():
         image = image[:-1]
 
-    # split to separate image planes and stack vertically ready for OME
-    image = Image.arrayjoin(image.bandsplit(), across=1)
-
     # set minimal OME metadata
-    # before we can modify an image (set metadata in this case), we must take a
-    # private copy
-    image = image.copy()
-    image.set_type(pyvips.GValue.gint_type, "page-height", image.height)
-    image.set_type(pyvips.GValue.gstr_type, "image-description", create_image_description(image))
+    image.set_type(pyvips.GValue.gstr_type, "image-description", create_ome_xml(image))
 
     output_args = {
         'bigtiff': True,
