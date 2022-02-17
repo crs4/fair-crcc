@@ -66,16 +66,19 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06 http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">
     <Image ID="Image:0">
-        <!-- Minimum required fields about image dimensions -->
-        <Pixels DimensionOrder="CXYZT"
-                ID="Pixels:0"
+        <Pixels ID="Pixels:0"
+                DimensionOrder="XYCZT"
+                Interleaved="false"
                 SizeC="{image_bands}"
                 SizeX="{image_width}"
                 SizeY="{image_height}"
                 SizeZ="1"
                 SizeT="1"
+                SignificantBits="8"
                 Type="uint8">
-            <MetadataOnly/>
+         <Channel ID="Channel:0:0" SamplesPerPixel="3">
+            <LightPath/>
+         </Channel>
         </Pixels>
     </Image>
 </OME>"""
@@ -85,7 +88,7 @@ def create_ome_xml(image: pyvips.Image) -> str:
     xml_fields = dict(
         image_width=image.width,
         image_height=image.height,
-        image_bands=image.bands)
+        image_bands=3)  # RGB (original image loaded by openslide also includes alpha channel, so it has 4)
     initial_xml = ome_xml_template.format(**xml_fields)
 
     metadata = extract_metadata(image)
@@ -128,7 +131,7 @@ def main(args=None):
     """
     opts = parse_args(args)
 
-    image = Image.openslideload(str(opts.original), access="sequential", attach_associated=True)
+    image = Image.openslideload(str(opts.original), access="sequential")
 
     # openslide will add an alpha ... drop it
     if image.hasalpha():
@@ -136,6 +139,7 @@ def main(args=None):
 
     # set minimal OME metadata
     image.set_type(pyvips.GValue.gstr_type, "image-description", create_ome_xml(image))
+    image.set_type(pyvips.GValue.gint_type, "page-height", image.height)
 
     output_args = {
         'bigtiff': True,
@@ -144,13 +148,16 @@ def main(args=None):
         'tile_height': opts.tile_size,
         'properties': True,
         'compression': opts.compression,
-        'subifd': True,
         'pyramid': False,
+        'subifd': False,
     }
 
     if not opts.no_pyramid:
         output_args['pyramid'] = True
         output_args['depth'] = 'onetile'
+        # subifd is required for OME-TIFF style pyramids, where the pyramid layers
+        # are stored in the same page as the original image
+        output_args['subifd'] = True
 
     if opts.quality:
         output_args['Q'] = opts.quality
