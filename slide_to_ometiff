@@ -78,7 +78,7 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
          <Channel ID="Channel:0:0" SamplesPerPixel="3">
             <LightPath/>
          </Channel>
-         <MetadataOnly/>
+         <TiffData/>
         </Pixels>
     </Image>
 </OME>"""
