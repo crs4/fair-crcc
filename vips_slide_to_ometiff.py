@@ -50,8 +50,7 @@ def parse_args(args=None):
         return x
     parser.add_argument('-q', '--quality', type=quality_value)
 
-    parser.add_argument('--no-pyramid', action='store_true',
-                        help="Don't generate pyramid")
+    parser.add_argument('-p', '--pyramid', action='store_true', help="Generate pyramid")
     parser.add_argument('-t', '--tile-size', type=int, default=512)
     parser.add_argument('-v', '--verbose', action='store_true',
                         help="Be more verbose. Prints progress information from libvips")
@@ -152,7 +151,7 @@ def main(args=None):
         'subifd': False,
     }
 
-    if not opts.no_pyramid:
+    if opts.pyramid:
         output_args['pyramid'] = True
         output_args['depth'] = 'onetile'
         # subifd is required for OME-TIFF style pyramids, where the pyramid layers
