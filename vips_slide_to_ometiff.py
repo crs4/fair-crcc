@@ -78,6 +78,7 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
          <Channel ID="Channel:0:0" SamplesPerPixel="3">
             <LightPath/>
          </Channel>
+         <TiffData/>
         </Pixels>
     </Image>
 </OME>"""
@@ -145,7 +146,7 @@ def main(args=None):
         'tile': True,
         'tile_width': opts.tile_size,
         'tile_height': opts.tile_size,
-        'properties': True,
+        'properties': False,
         'compression': opts.compression,
         'pyramid': False,
         'subifd': False,
