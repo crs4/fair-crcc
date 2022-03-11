@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+
+
+# Authors: Luca Pireddu and Martin Kačenga
+
+import argparse
+import os
+import re
+import sys
+
+from pathlib import Path
+
+import pyvips
+from pyvips import Image
+
+
+def log(*args):
+    if args:
+        print(*args, file=sys.stderr)
+
+
+def parse_args(args=None):
+    parser = argparse.ArgumentParser(
+        description="Convert from a supported openslide format to BigTIFF")
+
+    parser.add_argument("original", type=Path, metavar="SOURCE")
+    parser.add_argument("output", type=Path, metavar="DEST")
+
+    def positive_value(x):
+        x = int(x)
+        if x <= 0:
+            raise argparse.ArgumentTypeError("value must be > 0")
+        return x
+    parser.add_argument('-q', '--quality', type=positive_value)
+
+    parser.add_argument('-w', '--width', type=positive_value, default=1024,
+                        help="Thumbnail width")
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help="Be more verbose. Prints progress information from libvips")
+
+    opts = parser.parse_args(args)
+    if opts.output.suffix != '.jpg':
+        parser.error("output path must have suffix .jpg")
+
+    return opts
+
+
+def choose_level(image_path: Path, thumb_hsize: int) -> int:
+    image = Image.openslideload(str(image_path), access="sequential")
+    field_re = re.compile(r'openslide\.level\[(\d+)\]\.width')
+    width_fields = dict()
+    for s in image.get_fields():
+        m = field_re.match(s)
+        if m:
+            width_fields[int(m.group(1))] = int(image.get(s))
+    # find the smallest width that is at least as large as the required size
+    for level, width in sorted(width_fields.items(), reverse=True):
+        if width >= thumb_hsize:
+            return level
+
+    raise RuntimeError("Can't extract thumbnail. Image does "
+                       "not contain a level with width >= requred thumbnail width")
+
+
+def main(args=None):
+    """
+    Extract thumbnail from image opened with openslide.
+    """
+    opts = parse_args(args)
+
+    required_level = choose_level(str(opts.original), opts.width)
+    image = Image.openslideload(str(opts.original),
+                                level=required_level,
+                                access="sequential")
+    print(f"Extracting thumbnail from image level {required_level} ({image.width} x {image.height})")
+
+    # openslide will add an alpha ... drop it
+    if image.hasalpha():
+        image = image[:-1]
+
+    scale = opts.width / image.width
+    print("Scale factor:", scale)
+
+    thumbnail = image.resize(scale)
+
+    output_args = {}
+
+    if opts.quality:
+        output_args['Q'] = opts.quality
+
+    if opts.verbose:
+        os.environ['VIPS_PROGRESS'] = "1"
+        log("Writing thumbnail. Arguments:", output_args)
+
+    thumbnail.jpegsave(str(opts.output), **output_args)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
