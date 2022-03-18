@@ -68,9 +68,6 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
         <Pixels ID="Pixels:0"
                 DimensionOrder="XYCZT"
                 Interleaved="false"
-                SizeC="{image_bands}"
-                SizeX="{image_width}"
-                SizeY="{image_height}"
                 SizeZ="1"
                 SizeT="1"
                 SignificantBits="8"
@@ -78,27 +75,37 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
          <Channel ID="Channel:0:0" SamplesPerPixel="3">
             <LightPath/>
          </Channel>
-         <TiffData/>
+         <TiffData IFD="0" PlaneCount="1" />
         </Pixels>
     </Image>
 </OME>"""
 
 
 def create_ome_xml(image: pyvips.Image) -> str:
-    xml_fields = dict(
-        image_width=image.width,
-        image_height=image.height,
-        image_bands=3)  # RGB (original image loaded by openslide also includes alpha channel, so it has 4)
-    initial_xml = ome_xml_template.format(**xml_fields)
-
     metadata = extract_metadata(image)
 
-    ET.register_namespace("OME", "http://www.openmicroscopy.org/Schemas/OME/2016-06")
-    root = ET.fromstring(initial_xml)
+    ns = {"OME": "http://www.openmicroscopy.org/Schemas/OME/2016-06"}
+    ET.register_namespace(*tuple(*ns.items()))
+    root = ET.fromstring(ome_xml_template)
+
+    pixels_node = root.find("OME:Image", ns).find("OME:Pixels", ns)
+    pixels_node.set("SizeC", "3")  # RGB (original image loaded by openslide also includes alpha channel, so it has 4)
+    pixels_node.set("SizeX", str(image.width))
+    pixels_node.set("SizeY", str(image.height))
+
+    if image.get("openslide.mpp-x") and image.get("openslide.mpp-y"):
+        # Find the Pixels element and insert the microns per pixel
+        pixels_node.set("PhysicalSizeX", image.get("openslide.mpp-x"))
+        pixels_node.set("PhysicalSizeXUnit", "µm")
+        pixels_node.set("PhysicalSizeY", image.get("openslide.mpp-y"))
+        pixels_node.set("PhysicalSizeYUnit", "µm")
+
+    # Add original metadata as subelements of root
     structured_annotations = ET.SubElement(root, "OME:StructuredAnnotations")
     counter = 0
     for key, value in metadata.items():
-        xml_annotation = ET.SubElement(structured_annotations, "OME:XMLAnnotation")
+        xml_annotation = ET.SubElement(structured_annotations, "OME:XMLAnnotation",
+                                       attrib={"Namespace": "openmicroscopy.org/OriginalMetadata"})
         xml_annotation.set("ID", "Annotation:" + str(counter))
         counter += 1
         val = ET.SubElement(xml_annotation, "OME:Value")
@@ -107,7 +114,7 @@ def create_ome_xml(image: pyvips.Image) -> str:
         k.text = key
         v = ET.SubElement(original_metadata, "Value")
         v.text = value
-    return ET.tostring(root, encoding='utf-8')
+    return b"""<?xml version="1.0" encoding="UTF-8"?>\n""" + ET.tostring(root, encoding='utf-8')
 
 
 def extract_metadata(image: pyvips.Image) -> Mapping[str, Any]:
