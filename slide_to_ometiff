@@ -66,9 +66,10 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
     xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06 http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">
     <Image ID="Image:0">
         <Pixels ID="Pixels:0"
-                DimensionOrder="XYCZT"
+                DimensionOrder="XYZCT"
                 Interleaved="false"
                 SizeZ="1"
+                SizeC="1"
                 SizeT="1"
                 SignificantBits="8"
                 Type="uint8">
@@ -89,7 +90,6 @@ def create_ome_xml(image: pyvips.Image) -> str:
     root = ET.fromstring(ome_xml_template)
 
     pixels_node = root.find("OME:Image", ns).find("OME:Pixels", ns)
-    pixels_node.set("SizeC", "3")  # RGB (original image loaded by openslide also includes alpha channel, so it has 4)
     pixels_node.set("SizeX", str(image.width))
     pixels_node.set("SizeY", str(image.height))
 
