@@ -182,7 +182,8 @@ def main(args=None):
 
     # set minimal OME metadata
     image.set_type(pyvips.GValue.gstr_type, "image-description", create_ome_xml(image, opts))
-    image.set_type(pyvips.GValue.gint_type, "page-height", image.height)
+    # We're not create a multi-page TIFF, so I suspect we shouldn't be setting the page-height property
+    # image.set_type(pyvips.GValue.gint_type, "page-height", image.height)
 
     output_args = {
         'bigtiff': True,
