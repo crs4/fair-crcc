@@ -82,12 +82,17 @@ ome_xml_template = """<?xml version="1.0" encoding="UTF-8"?>
 </OME>"""
 
 
-def create_ome_xml(image: pyvips.Image) -> str:
-    metadata = extract_metadata(image)
-
+def create_ome_xml(image: pyvips.Image, opts) -> bytes:
     ns = {"OME": "http://www.openmicroscopy.org/Schemas/OME/2016-06"}
     ET.register_namespace(*tuple(*ns.items()))
     root = ET.fromstring(ome_xml_template)
+
+    root.insert(0, ET.Comment(
+        """Warning: this comment is an OME-XML metadata block, which contains\n"""
+        """crucial dimensional parameters and other important metadata. Please edit\n"""
+        """cautiously (if at all), and back up the original data before doing so.\n"""
+        """For more information, see the OME-TIFF documentation:\n"""
+        """https://docs.openmicroscopy.org/latest/ome-model/ome-tiff/\n"""))
 
     pixels_node = root.find("OME:Image", ns).find("OME:Pixels", ns)
     pixels_node.set("SizeX", str(image.width))
@@ -100,21 +105,52 @@ def create_ome_xml(image: pyvips.Image) -> str:
         pixels_node.set("PhysicalSizeY", image.get("openslide.mpp-y"))
         pixels_node.set("PhysicalSizeYUnit", "µm")
 
-    # Add original metadata as subelements of root
     structured_annotations = ET.SubElement(root, "OME:StructuredAnnotations")
+
+    # Add original metadata as subelements of root
+    append_metadata_annotations(image, structured_annotations)
+
+    # if we're creating a pyramid, add pyramid metadata
+    if opts.pyramid:
+        structured_annotations.append(
+            create_pyramid_metadata(image.width, image.height, opts.tile_size))
+
+    return ET.tostring(root, xml_declaration=True, encoding='utf-8')
+
+
+def append_metadata_annotations(image: pyvips.Image, parent: ET.Element) -> ET.Element:
+    metadata = extract_metadata(image)
     counter = 0
     for key, value in metadata.items():
-        xml_annotation = ET.SubElement(structured_annotations, "OME:XMLAnnotation",
+        xml_annotation = ET.SubElement(parent, "OME:XMLAnnotation",
                                        attrib={"Namespace": "openmicroscopy.org/OriginalMetadata"})
         xml_annotation.set("ID", "Annotation:" + str(counter))
         counter += 1
+        # The contents of an OME:XMLAnnotation are not processed as OME XML
+        # but should still be well-formed XML
         val = ET.SubElement(xml_annotation, "OME:Value")
         original_metadata = ET.SubElement(val, "OriginalMetadata")
         k = ET.SubElement(original_metadata, "Key")
         k.text = key
         v = ET.SubElement(original_metadata, "Value")
         v.text = value
-    return b"""<?xml version="1.0" encoding="UTF-8"?>\n""" + ET.tostring(root, encoding='utf-8')
+
+
+def create_pyramid_metadata(width: int, height: int, tile_size: int) -> ET.Element:
+    pyramid_annotation = ET.Element("OME:MapAnnotation",
+                                    attrib={
+                                        "ID": "Annotation:Resolution:0",
+                                        "Namespace": "openmicroscopy.org/PyramidResolution"})
+    val = ET.SubElement(pyramid_annotation, "OME:Value")
+    layer_index = 0
+    while width > tile_size or height > tile_size:
+        width = int(width / 2)
+        height = int(height / 2)
+        layer_index += 1
+        layer_element = ET.SubElement(val, "OME:M", attrib={"K": str(layer_index)})
+        layer_element.text = f"{width} {height}"
+
+    return pyramid_annotation
 
 
 def extract_metadata(image: pyvips.Image) -> Mapping[str, Any]:
@@ -145,7 +181,7 @@ def main(args=None):
         image = image[:-1]
 
     # set minimal OME metadata
-    image.set_type(pyvips.GValue.gstr_type, "image-description", create_ome_xml(image))
+    image.set_type(pyvips.GValue.gstr_type, "image-description", create_ome_xml(image, opts))
     image.set_type(pyvips.GValue.gint_type, "page-height", image.height)
 
     output_args = {
