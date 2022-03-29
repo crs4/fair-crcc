@@ -68,7 +68,7 @@ def main(args=None):
     """
     opts = parse_args(args)
 
-    required_level = choose_level(str(opts.original), opts.width)
+    required_level = choose_level(Path(opts.original), opts.width)
     image = Image.openslideload(str(opts.original),
                                 level=required_level,
                                 access="sequential")
