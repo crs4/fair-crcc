@@ -118,7 +118,7 @@ def create_ome_xml(image: pyvips.Image, opts) -> bytes:
     return ET.tostring(root, xml_declaration=True, encoding='utf-8')
 
 
-def append_metadata_annotations(image: pyvips.Image, parent: ET.Element) -> ET.Element:
+def append_metadata_annotations(image: pyvips.Image, parent: ET.Element) -> None:
     metadata = extract_metadata(image)
     counter = 0
     for key, value in metadata.items():
