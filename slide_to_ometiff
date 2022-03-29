@@ -164,6 +164,8 @@ def extract_metadata(image: pyvips.Image) -> Mapping[str, Any]:
     elif image_format == "hamamatsu":
         metadata = {f.split('.', 1)[1]: image.get(f)
                     for f in image.get_fields() if f.startswith('hamamatsu')}
+    else:
+        raise NotImplementedError(f"image format {image_format} is not supported")
 
     return metadata
 
