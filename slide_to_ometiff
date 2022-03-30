@@ -98,7 +98,8 @@ def create_ome_xml(image: pyvips.Image, opts) -> bytes:
     pixels_node.set("SizeX", str(image.width))
     pixels_node.set("SizeY", str(image.height))
 
-    if image.get("openslide.mpp-x") and image.get("openslide.mpp-y"):
+    image_fields = image.get_fields()
+    if "openslide.mpp-x" in image_fields and "openslide.mpp-y" in image_fields:
         # Find the Pixels element and insert the microns per pixel
         pixels_node.set("PhysicalSizeX", image.get("openslide.mpp-x"))
         pixels_node.set("PhysicalSizeXUnit", "µm")
